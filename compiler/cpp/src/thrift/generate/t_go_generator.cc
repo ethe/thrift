@@ -904,7 +904,7 @@ string t_go_generator::go_imports_end() {
       "var _ = fmt.Printf\n"
       "var _ = reflect.DeepEqual\n"
       "var _ = context.TODO()\n"
-      "var _ = tracker.VersionDefault\n"
+      "var _ = tracker.TrackingAPIName\n"
       "var _ = bytes.Equal\n\n");
 }
 
