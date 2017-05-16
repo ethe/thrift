@@ -904,7 +904,7 @@ string t_go_generator::go_imports_end() {
       "var _ = fmt.Printf\n"
       "var _ = reflect.DeepEqual\n"
       "var _ = context.TODO()\n"
-      "var _ = tracker.VersionDefault\n"
+      "var _ = tracker.TrackingAPIName\n"
       "var _ = bytes.Equal\n\n");
 }
 
@@ -2002,13 +2002,6 @@ void t_go_generator::generate_service_client(t_service* tservice) {
     f_types_ << indent() << "  oprot = p.ProtocolFactory.GetProtocol(p.Transport)" << endl;
     f_types_ << indent() << "  p.OutputProtocol = oprot" << endl;
     f_types_ << indent() << "}" << endl;
-    f_types_ << indent() << "p.SeqId++" << endl;
-    f_types_ << indent() << "if err = oprot.WriteMessageBegin(\"" << (*f_iter)->get_name()
-               << "\", " << ((*f_iter)->is_oneway() ? "thrift.ONEWAY" : "thrift.CALL")
-               << ", p.SeqId); err != nil {" << endl;
-    f_types_ << indent() << "  return" << endl;
-    indent_down();
-    f_types_ << indent() << "}" << endl;
 
     // XXX: write tracker request header
     f_types_ << indent() << "if err = p.Tracker.TryWriteRequestHeader(ctx, oprot); err != nil {" << endl;
@@ -2017,6 +2010,13 @@ void t_go_generator::generate_service_client(t_service* tservice) {
     indent_down();
     f_types_ << indent() << "}" << endl;
 
+    f_types_ << indent() << "p.SeqId++" << endl;
+    f_types_ << indent() << "if err = oprot.WriteMessageBegin(\"" << (*f_iter)->get_name()
+               << "\", " << ((*f_iter)->is_oneway() ? "thrift.ONEWAY" : "thrift.CALL")
+               << ", p.SeqId); err != nil {" << endl;
+    f_types_ << indent() << "  return" << endl;
+    indent_down();
+    f_types_ << indent() << "}" << endl;
     f_types_ << indent() << "args := " << argsname << "{" << endl;
     for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
       f_types_ << indent() << publicize((*fld_iter)->get_name()) << " : "
@@ -2615,31 +2615,39 @@ void t_go_generator::generate_service_server(t_service* tservice) {
   string self(tmp("self"));
 
   if (extends_processor.empty()) {
+
+    // XXX: wrapper for thrift.TProcessorFunction with context support
+    f_types_ << indent() << "type CtxTProcessorFunction interface {" << endl;
+    f_types_ << indent() << "  thrift.TProcessorFunction" << endl;
+    f_types_ << indent() << "  SetCtx(ctx context.Context)" << endl;
+    f_types_ << indent() << "  Ctx() context.Context" << endl;
+    f_types_ << indent() << "}" << endl << endl;
+
     f_types_ << indent() << "type " << serviceName << "Processor struct {" << endl;
     f_types_ << indent() << "  tracker tracker.Tracker" << endl;
-    f_types_ << indent() << "  processorMap map[string]thrift.TProcessorFunction" << endl;
+    f_types_ << indent() << "  processorMap map[string]CtxTProcessorFunction" << endl;
     f_types_ << indent() << "  handler " << serviceName << endl;
     f_types_ << indent() << "}" << endl << endl;
     f_types_ << indent() << "func (p *" << serviceName
-               << "Processor) AddToProcessorMap(key string, processor thrift.TProcessorFunction) {"
+               << "Processor) AddToProcessorMap(key string, processor CtxTProcessorFunction) {"
                << endl;
     f_types_ << indent() << "  p.processorMap[key] = processor" << endl;
     f_types_ << indent() << "}" << endl << endl;
     f_types_ << indent() << "func (p *" << serviceName
                << "Processor) GetProcessorFunction(key string) "
-                  "(processor thrift.TProcessorFunction, ok bool) {" << endl;
+                  "(processor CtxTProcessorFunction, ok bool) {" << endl;
     f_types_ << indent() << "  processor, ok = p.processorMap[key]" << endl;
     f_types_ << indent() << "  return processor, ok" << endl;
     f_types_ << indent() << "}" << endl << endl;
     f_types_ << indent() << "func (p *" << serviceName
-               << "Processor) ProcessorMap() map[string]thrift.TProcessorFunction {" << endl;
+               << "Processor) ProcessorMap() map[string]CtxTProcessorFunction {" << endl;
     f_types_ << indent() << "  return p.processorMap" << endl;
     f_types_ << indent() << "}" << endl << endl;
     f_types_ << indent() << "func New" << serviceName << "Processor(tracker tracker.Tracker, handler " << serviceName
                << ") *" << serviceName << "Processor {" << endl << endl;
     f_types_
         << indent() << "  " << self << " := &" << serviceName
-        << "Processor{tracker:tracker, handler:handler, processorMap:make(map[string]thrift.TProcessorFunction)}"
+        << "Processor{tracker:tracker, handler:handler, processorMap:make(map[string]CtxTProcessorFunction)}"
         << endl;
 
     for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
@@ -2655,6 +2663,13 @@ void t_go_generator::generate_service_server(t_service* tservice) {
     f_types_ << indent() << "func (p *" << serviceName
                << "Processor) Process(iprot, oprot thrift.TProtocol) (success bool, err "
                   "thrift.TException) {" << endl;
+
+    // XXX: read tracker request header
+    f_types_ << indent() << "ctx, err := p.tracker.TryReadRequestHeader(iprot)" << endl;
+    f_types_ << indent() << "if err != nil {" << endl;
+    f_types_ << indent() << "  return" << endl;
+    f_types_ << indent() << "}" << endl;
+
     f_types_ << indent() << "  name, _, seqId, err := iprot.ReadMessageBegin()" << endl;
     f_types_ << indent() << "  if err != nil { return false, err }" << endl;
 
@@ -2664,6 +2679,7 @@ void t_go_generator::generate_service_server(t_service* tservice) {
     f_types_ << indent() << "  }" << endl;
 
     f_types_ << indent() << "  if processor, ok := p.GetProcessorFunction(name); ok {" << endl;
+    f_types_ << indent() << "    processor.SetCtx(ctx)" << endl;
     f_types_ << indent() << "    return processor.Process(seqId, iprot, oprot)" << endl;
     f_types_ << indent() << "  }" << endl;
     f_types_ << indent() << "  iprot.Skip(thrift.STRUCT)" << endl;
@@ -2721,20 +2737,19 @@ void t_go_generator::generate_process_function(t_service* tservice, t_function* 
   // const std::vector<t_field*>& xceptions = xs->get_members();
   vector<t_field*>::const_iterator x_iter;
   f_types_ << indent() << "type " << processorName << " struct {" << endl;
+  f_types_ << indent() << "  ctx context.Context" << endl;
   f_types_ << indent() << "  tracker tracker.Tracker" << endl;
   f_types_ << indent() << "  handler " << publicize(tservice->get_name()) << endl;
   f_types_ << indent() << "}" << endl << endl;
+
+  // XXX implements CtxTProcessorFunction
+  f_types_ << indent() << "func (p *" << processorName << ") SetCtx(ctx context.Context) { p.ctx = ctx }" << endl;
+  f_types_ << indent() << "func (p *" << processorName << ") Ctx() context.Context { return p.ctx }" << endl;
+
   f_types_ << indent() << "func (p *" << processorName
              << ") Process(seqId int32, iprot, oprot thrift.TProtocol) (success bool, err "
                 "thrift.TException) {" << endl;
   indent_up();
-
-  // XXX: read tracker request header
-  f_types_ << indent() << "ctx, err := p.tracker.TryReadRequestHeader(iprot)" << endl;
-  f_types_ << indent() << "if err != nil {" << endl;
-  f_types_ << indent() << "  return" << endl;
-  f_types_ << indent() << "}" << endl;
-
   f_types_ << indent() << "args := " << argsname << "{}" << endl;
   f_types_ << indent() << "if err = args." << read_method_name_ <<  "(iprot); err != nil {" << endl;
   f_types_ << indent() << "  iprot.ReadMessageEnd()" << endl;
@@ -2774,7 +2789,7 @@ void t_go_generator::generate_process_function(t_service* tservice, t_function* 
   t_struct* arg_struct = tfunction->get_arglist();
   const std::vector<t_field*>& fields = arg_struct->get_members();
   vector<t_field*>::const_iterator f_iter;
-  f_types_ << "err2 = p.handler." << publicize(tfunction->get_name()) << "(ctx";
+  f_types_ << "err2 = p.handler." << publicize(tfunction->get_name()) << "(p.Ctx()";
 
   for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
     f_types_ << ", ";
