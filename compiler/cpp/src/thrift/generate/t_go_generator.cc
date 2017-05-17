@@ -2616,11 +2616,9 @@ void t_go_generator::generate_service_server(t_service* tservice) {
 
   if (extends_processor.empty()) {
 
-    // XXX: wrapper for thrift.TProcessorFunction with context support
+    // XXX: a variety of thrift.TProcessorFunction with context support
     f_types_ << indent() << "type CtxTProcessorFunction interface {" << endl;
-    f_types_ << indent() << "  thrift.TProcessorFunction" << endl;
-    f_types_ << indent() << "  SetCtx(ctx context.Context)" << endl;
-    f_types_ << indent() << "  Ctx() context.Context" << endl;
+    f_types_ << indent() << "  Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (bool, thrift.TException)" << endl;
     f_types_ << indent() << "}" << endl << endl;
 
     f_types_ << indent() << "type " << serviceName << "Processor struct {" << endl;
@@ -2679,8 +2677,7 @@ void t_go_generator::generate_service_server(t_service* tservice) {
     f_types_ << indent() << "  }" << endl;
 
     f_types_ << indent() << "  if processor, ok := p.GetProcessorFunction(name); ok {" << endl;
-    f_types_ << indent() << "    processor.SetCtx(ctx)" << endl;
-    f_types_ << indent() << "    return processor.Process(seqId, iprot, oprot)" << endl;
+    f_types_ << indent() << "    return processor.Process(ctx, seqId, iprot, oprot)" << endl;
     f_types_ << indent() << "  }" << endl;
     f_types_ << indent() << "  iprot.Skip(thrift.STRUCT)" << endl;
     f_types_ << indent() << "  iprot.ReadMessageEnd()" << endl;
@@ -2737,17 +2734,12 @@ void t_go_generator::generate_process_function(t_service* tservice, t_function* 
   // const std::vector<t_field*>& xceptions = xs->get_members();
   vector<t_field*>::const_iterator x_iter;
   f_types_ << indent() << "type " << processorName << " struct {" << endl;
-  f_types_ << indent() << "  ctx context.Context" << endl;
   f_types_ << indent() << "  tracker tracker.Tracker" << endl;
   f_types_ << indent() << "  handler " << publicize(tservice->get_name()) << endl;
   f_types_ << indent() << "}" << endl << endl;
 
-  // XXX implements CtxTProcessorFunction
-  f_types_ << indent() << "func (p *" << processorName << ") SetCtx(ctx context.Context) { p.ctx = ctx }" << endl;
-  f_types_ << indent() << "func (p *" << processorName << ") Ctx() context.Context { return p.ctx }" << endl;
-
   f_types_ << indent() << "func (p *" << processorName
-             << ") Process(seqId int32, iprot, oprot thrift.TProtocol) (success bool, err "
+             << ") Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err "
                 "thrift.TException) {" << endl;
   indent_up();
   f_types_ << indent() << "args := " << argsname << "{}" << endl;
@@ -2789,7 +2781,7 @@ void t_go_generator::generate_process_function(t_service* tservice, t_function* 
   t_struct* arg_struct = tfunction->get_arglist();
   const std::vector<t_field*>& fields = arg_struct->get_members();
   vector<t_field*>::const_iterator f_iter;
-  f_types_ << "err2 = p.handler." << publicize(tfunction->get_name()) << "(p.Ctx()";
+  f_types_ << "err2 = p.handler." << publicize(tfunction->get_name()) << "(ctx";
 
   for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
     f_types_ << ", ";
