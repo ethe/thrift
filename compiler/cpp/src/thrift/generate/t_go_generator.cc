@@ -62,7 +62,7 @@ static const string endl = "\n"; // avoid ostream << std::endl flushes
 bool format_go_output(const string& file_path);
 
 const string DEFAULT_THRIFT_IMPORT = "github.com/apache/thrift/lib/go/thrift";
-const string DEFAULT_THRIFT_TRACKER_IMPORT = "github.com/eleme/thrift-tracker";
+const string DEFAULT_THRIFT_TRACKER_IMPORT = "git.elenet.me/arch/thrift-tracker";
 static std::string package_flag;
 
 /**
